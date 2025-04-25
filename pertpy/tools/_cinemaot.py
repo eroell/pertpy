@@ -9,8 +9,11 @@ import pandas as pd
 import scanpy as sc
 import scipy.stats as ss
 import sklearn.metrics
+from ott.geometry import geometry
+from ott.geometry import pointcloud
 from ott.geometry.pointcloud import PointCloud
 from ott.problems.linear import linear_problem
+from ott.solvers import linear
 from ott.solvers.linear import sinkhorn, sinkhorn_lr
 from scanpy.plotting import _utils
 from scipy.sparse import issparse
@@ -142,8 +145,8 @@ class Cinemaot:
         if solver == "LRSinkhorn":
             if rank is None:
                 rank = int(min(cf1.shape[0], cf2.shape[0]) / 2)
-            _solver = jax.jit(sinkhorn_lr.LRSinkhorn(rank=rank, threshold=eps))
-            # _solver = sinkhorn_lr.LRSinkhorn(rank=rank, threshold=eps)
+            # _solver = jax.jit(sinkhorn_lr.LRSinkhorn(rank=rank, threshold=eps))
+            _solver = sinkhorn_lr.LRSinkhorn(rank=rank, threshold=eps)
             ot_sink = _solver(ot_prob)
             embedding = (
                 X_transformed[adata.obs[pert_key] != control, :]
@@ -171,6 +174,47 @@ class Cinemaot:
 
         else:
             _solver = jax.jit(sinkhorn.Sinkhorn(threshold=eps))
+            # print("jitt")
+            # def sink(a, b, cost, epsilon, min_iterations, max_iterations):
+            #     result = linear.solve(
+            #         geometry.Geometry(cost_matrix=cost, epsilon=epsilon),
+            #         a=a,
+            #         b=b,
+            #         lse_mode=False,
+            #         min_iterations=min_iterations,
+            #         max_iterations=max_iterations,
+            #     )
+                
+            #     return jnp.asarray(result.reg_ot_cost, dtype=jnp.float32)
+
+            # sink_2vmap = jax.jit(
+            #     jax.vmap(jax.vmap(sink, [0] + [None] * 5, 0), [None, 0] + [None] * 4, 1),
+            #     static_argnums=[4, 5],
+            # )
+            # cost_matrix = sklearn.metrics.pairwise_distances(cf1, cf2)
+            # ot_sink = sink_2vmap(a, b, cost_matrix, eps, 100, 100)
+
+
+            # def sink_pointcloud(a, b, cf1, cf2, epsilon, batch_size, min_iterations, max_iterations):
+            #     geom = pointcloud.PointCloud(cf1, cf2, epsilon=epsilon, batch_size=batch_size)
+            #     ot_prob = linear_problem.LinearProblem(geom, a=a, b=b)
+            #     out = sinkhorn.Sinkhorn(threshold=epsilon, lse_mode=True, min_iterations=min_iterations, max_iterations=max_iterations)(ot_prob)
+            #     return out.reg_ot_cost
+
+            # sink_2vmap = jax.jit(
+            #     jax.vmap(  # Outer batch (cf2 and b)
+            #         jax.vmap(  # Inner batch (cf1 and a)
+            #             sink_pointcloud,
+            #             in_axes=(0, None, 0, None, None, None, None, None),  # a, b, cf1, cf2, ...
+            #         ),
+            #         in_axes=(None, 0, None, 0, None, None, None, None)  # a, b, cf1, cf2, ...
+            #     ),
+            #     static_argnums=(4, 5, 6, 7),
+            # )
+
+            # ot_sink = sink_2vmap(ot_prob.a, ot_prob.b, cf1, cf2, eps, batch_size, 100, 100)
+
+            
             # _solver = sinkhorn.Sinkhorn(threshold=eps)
             ot_sink = _solver(ot_prob)
             ot_matrix = np.array(ot_sink.matrix.T, dtype=np.float64)
